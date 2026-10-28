@@ -1,7 +1,7 @@
 from django.shortcuts import render
 from django.http import HttpResponseRedirect
 # <HINT> Import any new Models here
-from .models import Course, Enrollment
+from .models import Course, Enrollment, Question, Choice, Submission
 from django.contrib.auth.models import User
 from django.shortcuts import get_object_or_404, render, redirect
 from django.urls import reverse
@@ -84,6 +84,7 @@ class CourseListView(generic.ListView):
         return courses
 
 
+# CourseDetailView
 class CourseDetailView(generic.DetailView):
     model = Course
     template_name = 'onlinecourse/course_detail_bootstrap.html'
@@ -103,34 +104,57 @@ def enroll(request, course_id):
     return HttpResponseRedirect(reverse(viewname='onlinecourse:course_details', args=(course.id,)))
 
 
-# <HINT> Create a submit view to create an exam submission record for a course enrollment,
-# you may implement it based on following logic:
-         # Get user and course object, then get the associated enrollment object created when the user enrolled the course
-         # Create a submission object referring to the enrollment
-         # Collect the selected choices from exam form
-         # Add each selected choice object to the submission object
-         # Redirect to show_exam_result with the submission id
-#def submit(request, course_id):
+# Collect the ids of the choices the learner ticked on the exam form
+def extract_answers(request):
+    submitted_answers = []
+    for key in request.POST:
+        if key.startswith('choice'):
+            value = request.POST[key]
+            choice_id = int(value)
+            submitted_answers.append(choice_id)
+    return submitted_answers
 
 
-# <HINT> A example method to collect the selected choices from the exam form from the request object
-#def extract_answers(request):
-#    submitted_anwsers = []
-#    for key in request.POST:
-#        if key.startswith('choice'):
-#            value = request.POST[key]
-#            choice_id = int(value)
-#            submitted_anwsers.append(choice_id)
-#    return submitted_anwsers
+# Create an exam submission for the logged-in, enrolled user
+def submit(request, course_id):
+    course = get_object_or_404(Course, pk=course_id)
+    user = request.user
+
+    enrollment = Enrollment.objects.filter(user=user, course=course).first()
+    if enrollment is None:
+        # Not enrolled: send the learner back to the course page
+        return HttpResponseRedirect(reverse('onlinecourse:course_details', args=(course.id,)))
+
+    submission = Submission.objects.create(enrollment=enrollment)
+    choices = extract_answers(request)
+    submission.choices.set(choices)
+
+    return HttpResponseRedirect(
+        reverse('onlinecourse:show_exam_result', args=(course.id, submission.id)))
 
 
-# <HINT> Create an exam result view to check if learner passed exam and show their question results and result for each question,
-# you may implement it based on the following logic:
-        # Get course and submission based on their ids
-        # Get the selected choice ids from the submission record
-        # For each selected choice, check if it is a correct answer or not
-        # Calculate the total score
-#def show_exam_result(request, course_id, submission_id):
+# Evaluate the submission and show the result page
+def show_exam_result(request, course_id, submission_id):
+    course = get_object_or_404(Course, pk=course_id)
+    submission = get_object_or_404(Submission, pk=submission_id)
 
+    selected_choices = submission.choices.all()
+    selected_ids = [choice.id for choice in selected_choices]
 
+    total = 0
+    score = 0
+    for question in course.question_set.all():
+        total += question.grade
+        if question.is_get_score(selected_ids):
+            score += question.grade
 
+    grade = int(score / total * 100) if total else 0
+
+    context = {
+        'course': course,
+        'selected_choices': selected_choices,
+        'score': score,
+        'total': total,
+        'grade': grade,
+    }
+    return render(request, 'onlinecourse/exam_result_bootstrap.html', context)
