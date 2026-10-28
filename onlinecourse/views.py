@@ -87,7 +87,7 @@ class CourseListView(generic.ListView):
 # CourseDetailView
 class CourseDetailView(generic.DetailView):
     model = Course
-    template_name = 'onlinecourse/course_detail_bootstrap.html'
+    template_name = 'onlinecourse/course_details_bootstrap.html'
 
 
 def enroll(request, course_id):
@@ -141,20 +141,21 @@ def show_exam_result(request, course_id, submission_id):
     selected_choices = submission.choices.all()
     selected_ids = [choice.id for choice in selected_choices]
 
-    total = 0
+    possible = 0
     score = 0
     for question in course.question_set.all():
-        total += question.grade
+        possible += question.grade
         if question.is_get_score(selected_ids):
             score += question.grade
 
-    grade = int(score / total * 100) if total else 0
+    grade = int(score / possible * 100) if possible else 0
 
     context = {
         'course': course,
         'selected_choices': selected_choices,
+        'selected_ids': selected_ids,
+        'possible': possible,
         'score': score,
-        'total': total,
         'grade': grade,
     }
     return render(request, 'onlinecourse/exam_result_bootstrap.html', context)
